@@ -1,12 +1,12 @@
 #include <arpa/inet.h>
-#include <linux/if_packet.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
-#include <net/if.h>
 #include <netinet/ether.h>
+#include <linux/if_packet.h>
+#include <linux/if.h>
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
@@ -23,12 +23,80 @@ struct  ethhdr {
 }
 */
 
-void send_message(){
+void send_message(char *interfaceName)
+{
+	int sock_send;
+	struct ifreq if_config;
+	char *interfaceHolder, *dataBuffer;
+	struct ethhdr *ethernetHeader;
+	struct iphdr *ipHeader;
+	int totalSize; 
 
+	sock_send = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
+	if(sock_send < 0)
+	{
+		printf("Error: Socket\n");
+		return;
+	}
 
+	interfaceHolder = (char *) malloc(sizeof(interfaceName));
+	strcpy(interfaceHolder, interfaceName);
+
+	memset(&if_config, 0, sizeof(if_config));
+	strncpy(if_config.ifr_name, interfaceHolder, IFNAMSIZ-1);
+	free(interfaceHolder);
+
+	//Get interface index
+	if((ioctl(sock_send, SIOCGIFINDEX, &if_config))< 0)
+	{
+		printf("ERROR: ioctl failure; SIOCGIFINDEX\n");
+		return;
+	}
+	
+	//Get MAC address of interface
+	if((ioctl(sock_send, SIOCGIFHWADDR, &if_config))< 0)
+	{
+		printf("ERROR: ioctl failure; SIOCGIFHWADDR\n");
+		return;
+	}
+
+	//Get IP Address of interface
+	if((ioctl(sock_send, SIOCGIFADDR, &if_config))< 0)
+	{
+		printf("ERROR: ioctl failure; SIOCGIFADDR\n");
+		return;
+	}
+
+	dataBuffer = (unsigned char *)malloc(64);
+	memset(dataBuffer, 0 , 64);
+	ethernetHeader = (struct ethhdr *)(dataBuffer);
+
+	//set the ethernetHeader hardware source (MAC Address)
+	for (int i = 0; i < ETH_ALEN; i++)
+		ethernetHeader->h_source[i] = (unsigned char)(if_config.ifr_hwaddr.sa_data[i]);
+	
+	//fill destination hardware dest !--- Placeholder ---!
+	for(int i = 0; i < ETH_ALEN; i++)
+		ethernetHeader->h_dest[i] = 0x00;
+
+	//Denotes next header as IP Header
+	ethernetHeader->h_proto = htons(ETH_P_IP);
+	totalSize = sizeof(struct ethhdr);
+	
+	//set all IP Header fields
+	ipHeader = (struct iphdr*)(dataBuffer + sizeof(struct ethhdr));
+	ipHeader->ihl = 5;
+	ipHeader->version = 4;
+	ipHeader->tos = 16;
+	ipHeader->id = htons(10201);
+	ipHeader->ttl = 64;
+	ipHeader->protocol = 17;
+	ipHeader->saddr = inet_addr(inet_ntoa((((struct sockaddr_in *)&(if_config.ifr_addr))->sin_addr)));
+	//iph->daddr = inet_addr(destination_ip); // put destination IP address
 }
 
-void recv_message(){
+void recv_message()
+{
 	//Do something here
 	int sock_rec;
 	unsigned char *buffer = (unsigned char *) malloc(BUF_SIZ);
@@ -51,7 +119,7 @@ void recv_message(){
 	}
 
 	printf("Message Received\n");
-	
+
 	//store ethernet header
 	struct ethhdr *ether = (struct ethhdr *) (buffer);
 	ethHeaderSize = sizeof(struct ethhdr);
@@ -64,7 +132,7 @@ void recv_message(){
 
 	unsigned char *message = (buffer + ipHeaderLen + ethHeaderSize + udpHeaderSize);
 	printf("received message: %s\n", message);
-
+	free(buffer);
 }
 
 int main(int argc, char *argv[])
@@ -108,7 +176,7 @@ int main(int argc, char *argv[])
 	//Do something here
 
 	if(mode == SEND){
-		send_message();
+		send_message(interfaceName);
 	}
 	else if (mode == RECV){
 		
