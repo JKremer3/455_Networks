@@ -7,9 +7,6 @@
 #include <netinet/ether.h>
 #include <linux/if_packet.h>
 #include <linux/if.h>
-#include <linux/ip.h>
-#include <linux/tcp.h>
-#include <linux/udp.h>
 
 #define BUF_SIZ		65536
 #define SEND 0
@@ -32,6 +29,7 @@ void send_message(char *interfaceName, int hwAddress[], char message[])
 	struct sockaddr_ll socketAddr;
 	int textLength = 0, i; 
 
+	//Open the Socket as a Raw Socket
 	sock_send = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
 	if(sock_send < 0)
 	{
@@ -45,7 +43,6 @@ void send_message(char *interfaceName, int hwAddress[], char message[])
 
 	memset(&if_ind, 0, sizeof(struct ifreq));
 	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
-
 	//Get interface index
 	if((ioctl(sock_send, SIOCGIFINDEX, &if_ind)< 0))
 	{
@@ -69,11 +66,13 @@ void send_message(char *interfaceName, int hwAddress[], char message[])
 	for (i = 0; i < ETH_ALEN; i++)
 		ethernetHeader->h_source[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
 	
-	//fill destination hardware dest !--- Placeholder ---!
+	//fill destination hardware dest 
 	for( i = 0; i < ETH_ALEN; i++)
 		ethernetHeader->h_dest[i] = hwAddress[i];
 
+	//sets the etherType
 	ethernetHeader->h_proto = htons(ETH_P_IP);
+	
 	textLength += sizeof(struct ethhdr);
 
 	i = 0;
@@ -93,18 +92,18 @@ void send_message(char *interfaceName, int hwAddress[], char message[])
 	{
 		printf("Message Failed to Send\n");
 	} 
+
 	printf("message sent!\n");
 	free(interfaceHolder);
 }
 
 void recv_message(char* interface)
 {
-	//Do something here
 	int sock_rec;
 	unsigned char *buffer = (unsigned char *) malloc(BUF_SIZ);
 	struct sockaddr sockAddress;
-	int sockAddress_len = sizeof(struct sockaddr), buffLen = 0; 
-	int ipHeaderLen, ethHeaderSize, udpHeaderSize;
+	int sockAddress_len = sizeof(struct sockaddr), buffCheck = 0; 
+	int ethHeaderSize;
 
 	//open a raw socket to receive all packet
 	sock_rec = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
@@ -115,9 +114,10 @@ void recv_message(char* interface)
 	}
 
 	printf("Waiting for Message\n");
-	while(buffLen == 0)
+	//loop here until a message is received
+	while(buffCheck == 0)
 	{
-		buffLen = recvfrom(sock_rec, buffer, BUF_SIZ, 0, &sockAddress, (socklen_t *) &sockAddress_len);
+		buffCheck = recvfrom(sock_rec, buffer, BUF_SIZ, 0, &sockAddress, (socklen_t *) &sockAddress_len);
 	}
 
 	printf("Message Received\n");
@@ -125,15 +125,9 @@ void recv_message(char* interface)
 	//store ethernet header
 	struct ethhdr *ether = (struct ethhdr *) (buffer);
 	ethHeaderSize = sizeof(struct ethhdr);
-	//store IP header, and grab the length
-	struct iphdr *ip = (struct iphdr *)(buffer + ethHeaderSize);
-	ipHeaderLen = ip->ihl * 4;
-	//Store UDP header, and store length
-	struct udphdr *udp = (struct udphdr *)(buffer + ipHeaderLen + ethHeaderSize);
-	udpHeaderSize = sizeof(struct udphdr);
 
-	unsigned char *message = (buffer + ipHeaderLen + ethHeaderSize + udpHeaderSize);
-	printf("%s\n",buffer);
+	//Read the message from the buffer
+	unsigned char *message = (buffer + ethHeaderSize );
 	printf("received message: %s\n", message);
 	free(buffer);
 }
