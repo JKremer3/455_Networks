@@ -100,16 +100,31 @@ void send_message(char *interfaceName, int hwAddress[], char message[])
 void recv_message(char* interface)
 {
 	int sock_rec;
-	unsigned char *buffer = (unsigned char *) malloc(BUF_SIZ);
+	unsigned char *buffer = (unsigned char *) malloc(BUF_SIZ), *interfaceHolder;
+	struct  ifreq if_MAC;
 	struct sockaddr sockAddress;
 	int sockAddress_len = sizeof(struct sockaddr), buffCheck = 0; 
-	int ethHeaderSize;
+	int ethHeaderSize, ethCheck = 1;
 
 	//open a raw socket to receive all packet
 	sock_rec = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_IP));
+	
 	if( sock_rec < 0)
 	{
 		printf("Err: Bad Socket\n");
+		return;
+	}
+
+	interfaceHolder = (char *) malloc(sizeof(interface));
+	memset(interfaceHolder, 0, sizeof(interface));
+	strcpy(interfaceHolder, interface);
+
+	memset(&if_MAC, 0, sizeof(struct ifreq));
+	strncpy(if_MAC.ifr_name, interfaceHolder, IFNAMSIZ-1);
+	//Get MAC address of interface
+	if((ioctl(sock_rec, SIOCGIFHWADDR, &if_MAC))< 0)
+	{
+		printf("ERROR: ioctl failure; SIOCGIFHWADDR\n");
 		return;
 	}
 
@@ -125,11 +140,29 @@ void recv_message(char* interface)
 	//store ethernet header
 	struct ethhdr *ether = (struct ethhdr *) (buffer);
 	ethHeaderSize = sizeof(struct ethhdr);
-
-	//Read the message from the buffer
 	unsigned char *message = (buffer + ethHeaderSize );
-	printf("received message: %s\n", message);
+	
+	for (int i = 0; i < 6; i++)
+		if(ether->h_dest[i] != (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]))
+			ethCheck = 0;
+
+	if(ethCheck != 0)
+	{
+		//Read the message from the buffer
+		
+		printf("Message Received from MAC: ");
+		for(int i = 0; i < 6; i++)
+			printf("%hhx:", ether->h_source[i]); 
+		printf("\n Type: %x\n", ether->h_proto);
+		printf("received message: %s\n", message);
+	}
+	else
+	{
+		printf("Error: Received message was meant for different address\n");
+	}
+	
 	free(buffer);
+	free(interfaceHolder);
 }
 
 int main(int argc, char *argv[])
