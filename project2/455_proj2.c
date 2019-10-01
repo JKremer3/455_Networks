@@ -7,6 +7,7 @@
 #include <netinet/ether.h>
 #include <linux/if_packet.h>
 #include <linux/if.h>
+#include <net/if_arp.h>
 
 #define BUF_SIZ		65536
 #define SEND 0
@@ -20,84 +21,102 @@ struct  ethhdr {
 }
 */
 
-void send_message(char *interfaceName, int hwAddress[], char message[])
+void send_recv_address(char *interfaceName, char* ipAddres)
 {
-	int sock_send;
-	struct ifreq if_ind, if_MAC;
-	char *interfaceHolder, dataBuffer[BUF_SIZ];
-	struct ethhdr *ethernetHeader;
+	int sock;
+	int textLength = 0, buffLength, i, isSent; 
+	
+	char dataBuffer[BUF_SIZ];
+	char sourceMAC[6];
+	char *interfaceHolder; 
+	char *ethHead = dataBuffer; 
+	char *arpHead = dataBuffer +14;
+	
+	struct ethhdr *ethernetHeader = (struct ethhdr *)dataBuffer;
+	struct arphdr *arpHeader;
 	struct sockaddr_ll socketAddr;
-	int textLength = 0, i; 
+	struct ifreq if_ind, if_MAC;
 
 	//Open the Socket as a Raw Socket
-	sock_send = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
-	if(sock_send < 0)
+	sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+	if(sock < 0)
 	{
 		printf("Error: Socket\n");
 		return;
 	}
 
+	printf("Succesfully Opened Socket");
+
 	interfaceHolder = (char *) malloc(sizeof(interfaceName));
 	memset(interfaceHolder, 0, sizeof(interfaceName));
 	strcpy(interfaceHolder, interfaceName);
 
+	//Get ethernet interface index 
 	memset(&if_ind, 0, sizeof(struct ifreq));
 	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
-	//Get interface index
-	if((ioctl(sock_send, SIOCGIFINDEX, &if_ind)< 0))
+	if((ioctl(sock, SIOCGIFINDEX, &if_ind)< 0))
 	{
 		printf("ERROR: ioctl failure; SIOCGIFINDEX\n");
 		return;
 	}
 	
+	//Get MAC address of interface
 	memset(&if_MAC, 0, sizeof(struct ifreq));
 	strncpy(if_MAC.ifr_name, interfaceHolder, IFNAMSIZ-1);
-	//Get MAC address of interface
-	if((ioctl(sock_send, SIOCGIFHWADDR, &if_MAC))< 0)
+	if((ioctl(sock, SIOCGIFHWADDR, &if_MAC))< 0)
 	{
 		printf("ERROR: ioctl failure; SIOCGIFHWADDR\n");
 		return;
 	}
 
 	memset(dataBuffer,0, BUF_SIZ);
-	ethernetHeader = (struct ethhdr *)(dataBuffer);
+	memset(sourceMAC, 0 , 6);
 
-	//set the ethernetHeader hardware source (MAC Address)
+	//store the source MAC Address
 	for (i = 0; i < ETH_ALEN; i++)
-		ethernetHeader->h_source[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
-	
-	//fill destination hardware dest 
-	for( i = 0; i < ETH_ALEN; i++)
-		ethernetHeader->h_dest[i] = hwAddress[i];
+		sourceMAC[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
 
-	//sets the etherType
-	ethernetHeader->h_proto = htons(ETH_P_IP);
-	
-	textLength += sizeof(struct ethhdr);
+	//Set socketAddr 
+	socketAddr.sll_family = PF_PACKET;
+	socketAddr.sll_protocol  = htons(ETH_P_ARP);
+	socketAddr.sll_ifindex = if_ind.ifr_ifindex;
+	socketAddr.sll_hatype = ARPHRD_ETHER;
+	socketAddr.sll_pkttype = PACKET_OTHERHOST;
+	socketAddr.sll_halen = 0;
+	socketAddr.sll_addr[6] = 0x00;
+	socketAddr.sll_addr[7] = 0x00;
 
-	i = 0;
-	while (message[i] != '\0')
-	{
-		dataBuffer[textLength++] = message[i];
-		i++;
-	}
-
-	socketAddr.sll_ifindex = if_ind.ifr_ifindex; //network index
-	socketAddr.sll_halen = ETH_ALEN; //address length
-	
-	for(i = 0; i <ETH_ALEN; i++) //fill in dest MAC
-		socketAddr.sll_addr[i] = hwAddress[i];
-
-	if(sendto(sock_send, dataBuffer, textLength, 0, (struct sockaddr*)&socketAddr, sizeof(struct sockaddr_ll)) < 0)
+	/*if(sendto(sock_send, dataBuffer, textLength, 0, (struct sockaddr*)&socketAddr, sizeof(struct sockaddr_ll)) < 0)
 	{
 		printf("Message Failed to Send\n");
-	} 
+	} */
+	while(1)
+	{
+		buffLength = recvfrom(sock, dataBuffer, BUF_SIZ, 0, NULL, NULL);
+		if(buffLength == -1)
+		{
+			perror("recvfrom:");
+		}
+
+		
+		if(ntohs(ethernetHeader->h_proto == ETH_P_ARP)) //check if the packet type is ARP
+		{
+			char buffer_ARP_DHA[6], buffer_ARP_DPA[4];
+			arpHeader = (struct arphdr*)arpHead;
+
+		}
+
+		if(sendto(sock, dataBuffer, BUF_SIZ, 0, (struct sockaddr*)&socketAddr, sizeof(struct sockaddr_ll)) < 0)
+		{
+			printf("Message Failed to Send\n");
+		} 
+	}
 
 	printf("message sent!\n");
 	free(interfaceHolder);
 }
 
-void recv_message(char* interface)
+/*void recv_message(char* interface)
 {
 	int sock_rec;
 	unsigned char *buffer = (unsigned char *) malloc(BUF_SIZ), *interfaceHolder;
@@ -163,58 +182,36 @@ void recv_message(char* interface)
 	
 	free(buffer);
 	free(interfaceHolder);
-}
+}*/
 
 int main(int argc, char *argv[])
 {
-	int mode;
+	//int mode;
 	int hw_addr[6];
 	char interfaceName[IFNAMSIZ];
-	char buf[BUF_SIZ];
+	//char buf[BUF_SIZ];
+	char* ipAddress;
 	struct sockaddr_ll sk_addr;
 	int sk_addr_size = sizeof(struct sockaddr_ll);
-	memset(buf, 0, BUF_SIZ);
+	//memset(buf, 0, BUF_SIZ);
 
 	int correct=0;
-	if (argc > 1){
-		
-
-
-		if(strncmp(argv[1],"Send", 4)==0){
-			if (argc == 5){
-				mode=SEND; 
-				printf("Interface: %s\n", argv[2]);
-				sscanf(argv[3], "%02x:%02x:%02x:%02x:%02x:%02x", &hw_addr[0], &hw_addr[1], &hw_addr[2], &hw_addr[3], &hw_addr[4], &hw_addr[5]);
-				printf("Destination MAC: %02x:%02x:%02x:%02x:%02x:%02x\n", hw_addr[0], hw_addr[1],hw_addr[2],hw_addr[3],hw_addr[4], hw_addr[5]);
-				strncpy(buf, argv[4], BUF_SIZ);
-				correct=1;
-				printf("  buf: %s\n", buf);
-			}
-		}
-		else if(strncmp(argv[1],"Recv", 4)==0){
-			if (argc == 3){
-				mode=RECV;
-				correct=1;
-			}
-		}
-		strncpy(interfaceName, argv[2], IFNAMSIZ);
-	 }
-	 if(!correct){
-		fprintf(stderr, "./455_proj2 Send <InterfaceName>  <DestHWAddr> <Message>\n");
-		fprintf(stderr, "./455_proj2 Recv <InterfaceName>\n");
+	if (argc == 3){	
+		printf("Interface: %s\n", argv[1]);
+		strncpy(interfaceName, argv[1], IFNAMSIZ);
+		ipAddress = strdup(argv[2]);
+		correct=1;
+	}
+	else
+	{
+		fprintf(stderr, "./455_proj2 <InterfaceName>  <DestIPAddress> \n");
 		exit(1);
-	 }
-
+	}
+	 
+	send_recv_address(interfaceName, ipAddress);
 	//Do something here
 
-	if(mode == SEND){
-		send_message(interfaceName, hw_addr, buf);
-	}
-	else if (mode == RECV){
-		
-		recv_message(interfaceName);
-	}
-
+	free(ipAddress);
 	return 0;
 }
 
