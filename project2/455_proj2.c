@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <signal.h>
 
+#include <netdb.h>
 #include <netinet/ether.h>
 #include <net/if.h>
 #include <arpa/inet.h>
@@ -46,14 +47,17 @@ int process_arp(char *interfaceName, char* ipAddress)
 {
 	int status, response_len, bytes, sock;
 	char *interfaceHolder, *ipHolder, *target;
-	char buffer[BUF_SIZE];
+	unsigned char src_ip_holder[IPV4_LENGTH];
+	unsigned char dest_ip_holder[IPV4_LENGTH];
+	unsigned char buffer[BUF_SIZE];
 	struct arp_hdr *arpHolder 	= (struct arp_hdr *)(buffer+ETH2_HEADER_LEN);
   	struct arp_hdr *arpResponse = (struct arp_hdr *)(buffer+ETH2_HEADER_LEN); 
 	struct ethhdr *send_req = (struct ethhdr*)buffer;
 	struct ethhdr *recv_response = (struct ethhdr*)buffer;
 	struct sockaddr_in *ipv4;
 	struct sockaddr_ll deviceSock;
-	struct ifreq if_MAC, if_ind;
+	struct ifreq if_MAC, if_ip, if_ind;
+	struct addrinfo *res;
 	
 	interfaceHolder = (char*) malloc(sizeof(char) * strlen(interfaceName));
 	ipHolder = (char*) malloc(sizeof(char) * strlen(ipAddress));
@@ -87,12 +91,24 @@ int process_arp(char *interfaceName, char* ipAddress)
 		return 0;
 	}
 	//Get ethernet interface i 
-	memset(&if_ind, 0, sizeof(struct ifreq));
-	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
+	memset(&if_ip, 0, sizeof(struct ifreq));
+	strncpy(if_ip.ifr_name, interfaceHolder, IFNAMSIZ-1);
 	//Get interface i
-	if((ioctl(sock, SIOCGIFADDR, &if_ind)< 0))
+	if((ioctl(sock, SIOCGIFADDR, &if_ip)< 0))
 	{
 		printf("ERROR: ioctl failure; SIOCGIFi\n");
+		free(ipHolder);
+		free(interfaceHolder);
+		return 0;
+	}
+
+	memset(&if_ind, 0, sizeof(struct ifreq));
+	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
+	//printf("Interface for MAC: %s\n", if_ind.ifr_name);
+	//Get MAC address of interface
+	if((ioctl(sock, SIOCGIFINDEX, &if_ind))< 0)
+	{
+		printf("ERROR: ioctl failure; SIOCGIFINDEX\n");
 		free(ipHolder);
 		free(interfaceHolder);
 		return 0;
@@ -103,14 +119,22 @@ int process_arp(char *interfaceName, char* ipAddress)
 	for(int i = 0; i < 6; i++)
 	{
 		arpHolder->sender_mac[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
+		arpHolder->target_mac[i] = 0x00;
 		send_req->h_source[i] 	 = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
-		send_req->h_dest[i]	= 0xff; //spamming that packet
+		send_req->h_dest[i]		 = 0xff; //spamming that packet
 		printf("%02x:", arpHolder->sender_mac[i]);
 	}
 	printf("\n");
 
-	printf("Source IP: %s\n", inet_ntoa(((struct sockaddr_in *)&if_ind.ifr_addr)->sin_addr));
-	strcpy(arpHolder->sender_ip, inet_ntoa(((struct sockaddr_in *)&if_ind.ifr_addr)->sin_addr));
+	printf("Source IP: %s\n", inet_ntoa(((struct sockaddr_in *)&if_ip.ifr_addr)->sin_addr));
+	strcpy(src_ip_holder, inet_ntoa(((struct sockaddr_in *)&if_ip.ifr_addr)->sin_addr));
+	if((inet_pton(AF_INET,src_ip_holder, arpHolder->sender_ip)) != 1)
+	{
+		printf("inet_pton() failed\n");
+		free(ipHolder);
+		free(interfaceHolder);
+		return 0;
+	}
 	printf("%s", arpHolder->sender_ip);
 	printf("\n");
 
@@ -118,11 +142,22 @@ int process_arp(char *interfaceName, char* ipAddress)
 	memset(&deviceSock, 0, sizeof(deviceSock));
 	if((deviceSock.sll_ifindex = if_nametoindex(interfaceHolder)) < 0)
 	{
-		printf("ERROR: failed to set sll_ifi\n");
+		printf("ERROR: failed to set sll_ifindex\n");
 		free(ipHolder);
 		free(interfaceHolder);
 		return 0;
 	}
+
+	strcpy(dest_ip_holder, ipHolder);
+	if((getaddrinfo(dest_ip_holder, NULL, NULL, &res)) != 0)
+	{
+		printf("Error: getaddrinfo()\n");
+		free(ipHolder);
+		free(interfaceHolder);
+		return 0;
+	}
+	ipv4 = (struct  sockaddr_in*) res->ai_addr; 
+	memcpy(arpHolder->target_ip, &ipv4->sin_addr, sizeof(unsigned char) * 4);
 
 	//set sockaddr_ll description
 	deviceSock.sll_family 	= AF_PACKET;
@@ -142,9 +177,8 @@ int process_arp(char *interfaceName, char* ipAddress)
 	arpHolder->hardware_len = MAC_LENGTH;
 	arpHolder->protocol_len =IPV4_LENGTH;
 	arpHolder->opcode = htons(arpHolderUEST);
-	strcpy(arpHolder->target_ip, interfaceHolder);
 	
-	buffer[32] = 0x00;
+	//buffer[32] = 0x00;
 
 	if((status = sendto(sock, buffer, 42, 0, (struct sockaddr*)&deviceSock, sizeof(deviceSock))) == -1)
 	{
@@ -155,7 +189,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 	}
 	else
 	{
-		printf("Sent ARP Request: %s\n", buffer);
+		printf("Sent ARP Request\n");
 	}
 	printf("\n\t");
   	memset(buffer,0x00,60);
