@@ -1,206 +1,201 @@
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <sys/time.h>
+
+#include <asm/types.h>
+
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <signal.h>
+
 #include <netinet/ether.h>
-#include <linux/if_packet.h>
-#include <net/if_arp.h>
 #include <net/if.h>
+#include <arpa/inet.h>
 
-#define BUF_SIZ		65536
-#define SEND 0
-#define RECV 1
+#include <linux/if_packet.h>
+#include <linux/if_ether.h>
 
+#define PROTO_ARP 0x0806
+#define ETH2_HEADER_LEN 14
+#define HW_TYPE 1
+#define PROTOCOL_TYPE 0x800
+#define MAC_LENGTH 6
+#define IPV4_LENGTH 4
+#define arpHolderUEST 0x01
+#define ARP_REPLY 0x02
+#define BUF_SIZE 60
 
-struct arp_hdr
+//adjusted arp_hdr struct for readability
+typedef struct arp_hdr
 {
-	uint16_t		ar_hrd;
-	uint16_t		ar_pro;
-	unsigned char	ar_hln;
-	unsigned char	ar_pln;
-	uint16_t		ar_op;
-	unsigned char	ar_sha[6];
-	unsigned char	ar_sip[4];
-	unsigned char	ar_tha[6];
-	unsigned char	ar_tip[4];
+  unsigned short hardware_type;			//ar_hrd
+  unsigned short protocol_type;			//ar_pro
+  unsigned char hardware_len;			//ar_hln
+  unsigned char  protocol_len;			//ar_pln
+  unsigned short opcode;				//ar_op
+  unsigned char sender_mac[MAC_LENGTH];	//ar_sha
+  unsigned char sender_ip[IPV4_LENGTH];	//ar_sip
+  unsigned char target_mac[MAC_LENGTH];	//ar_tha
+  unsigned char target_ip[IPV4_LENGTH];	//ar_tip
 }arp_hdr;
 
-int send_arp_req(char *interfaceName, char* ipAddress)
+int process_arp(char *interfaceName, char* ipAddress)
 {
-	int status, frame_len, bytes, sock;
-	char *interfaceCopy, *ipCopy, *target;
-	struct arp_hdr arpHolder; 
-	struct  sockaddr_in *ipv4;
+	int status, response_len, bytes, sock;
+	char *interfaceHolder, *ipHolder, *target;
+	char buffer[BUF_SIZE];
+	struct arp_hdr *arpHolder 	= (struct arp_hdr *)(buffer+ETH2_HEADER_LEN);
+  	struct arp_hdr *arpResponse = (struct arp_hdr *)(buffer+ETH2_HEADER_LEN); 
+	struct ethhdr *send_req = (struct ethhdr*)buffer;
+	struct ethhdr *recv_response = (struct ethhdr*)buffer;
+	struct sockaddr_in *ipv4;
 	struct sockaddr_ll deviceSock;
 	struct ifreq if_MAC, if_ind;
 	
-	interfaceCopy = (char*) malloc(sizeof(char) * strlen(interfaceName));
-	ipCopy = (char*) malloc(sizeof(char) * strlen(ipAddress));
-	strcpy(interfaceCopy, interfaceName);
-	strcpy(ipCopy, ipAddress);
+	interfaceHolder = (char*) malloc(sizeof(char) * strlen(interfaceName));
+	ipHolder = (char*) malloc(sizeof(char) * strlen(ipAddress));
+	memset(interfaceHolder, 0, sizeof(interfaceHolder));
+	memset(ipHolder, 0, sizeof(ipHolder));
+	strcpy(interfaceHolder, interfaceName);
+	strcpy(ipHolder, ipAddress);
 	
+	memset(buffer, 0, sizeof(buffer));
 	//attempt to get socket descriptor to look up local interface
-	if((sock = socket (AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0)
+	if((sock = socket (AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))) < 0)
 	{
 		printf("Socket() failed to open\n");
-		free(ipCopy);
-		free(interfaceCopy);
+		free(ipHolder);
+		free(interfaceHolder);
 		return 0;
 	}
 	close(sock);
-	sock = socket (AF_INET, SOCK_RAW, IPPROTO_RAW);
+	sock = socket (AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
 	//Get Source MAC
-	memset(&if_MAC, 0 , sizeof(if_MAC));
-	strncpy(if_MAC.ifr_name, interfaceCopy, IF_NAMESIZE-1);
+	memset(&if_MAC, 0, sizeof(struct ifreq));
+	strncpy(if_MAC.ifr_name, interfaceHolder, IFNAMSIZ-1);
 	printf("Interface for MAC: %s\n", if_MAC.ifr_name);
-	if((ioctl(sock, SIOCGIFHWADDR, &if_MAC)) < 0);
+	//Get MAC address of interface
+	if((ioctl(sock, SIOCGIFHWADDR, &if_MAC))< 0)
 	{
-		printf("ioctl() failed to get source MAC\n");
-		free(ipCopy);
-		free(interfaceCopy);
+		printf("ERROR: ioctl failure; SIOCGIFHWADDR\n");
+		free(ipHolder);
+		free(interfaceHolder);
 		return 0;
 	}
-	
-	//Get ethernet interface index 
+	//Get ethernet interface i 
 	memset(&if_ind, 0, sizeof(struct ifreq));
-	strncpy(if_ind.ifr_name, interfaceCopy, IF_NAMESIZE-1);
-	if((ioctl(sock, SIOCGIFADDR, &if_ind)) < 0)
+	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
+	//Get interface i
+	if((ioctl(sock, SIOCGIFADDR, &if_ind)< 0))
 	{
-		printf("ERROR: ioctl failure; SIOCGIFADDR\n");
-		free(ipCopy);
-		free(interfaceCopy);
+		printf("ERROR: ioctl failure; SIOCGIFi\n");
+		free(ipHolder);
+		free(interfaceHolder);
 		return 0;
 	}
 	//close(sock);
 	
-	printf("Source MAC:");
+	printf("Source MAC: ");
 	for(int i = 0; i < 6; i++)
 	{
-		printf("%02x:", if_MAC.ifr_hwaddr.sa_data[i]);
-		arpHolder.ar_sha[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
+		arpHolder->sender_mac[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
+		send_req->h_source[i] 	 = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
+		send_req->h_dest[i]	= 0xff; //spamming that packet
+		printf("%02x:", arpHolder->sender_mac[i]);
 	}
 	printf("\n");
 
-	printf("Source IP:");
-	for(int i = 0; i < 4; i++)
-	{
-		printf("%03x:", if_ind.ifr_addr.sa_data[i]);
-		arpHolder.ar_sip[i] = (unsigned char)(if_ind.ifr_addr.sa_data[i]);
-	}
+	printf("Source IP: %s\n", inet_ntoa(((struct sockaddr_in *)&if_ind.ifr_addr)->sin_addr));
+	strcpy(arpHolder->sender_ip, inet_ntoa(((struct sockaddr_in *)&if_ind.ifr_addr)->sin_addr));
+	printf("%s", arpHolder->sender_ip);
 	printf("\n");
 
-	//Finding interface index and name, storing in deviceSock
+	//Finding interface i and name, storing in deviceSock
 	memset(&deviceSock, 0, sizeof(deviceSock));
-	if((deviceSock.sll_ifindex = if_nametoindex(interfaceCopy)) < 0)
+	if((deviceSock.sll_ifindex = if_nametoindex(interfaceHolder)) < 0)
 	{
-		printf("ERROR: failed to set sll_ifindex\n");
-		free(ipCopy);
-		free(interfaceCopy);
+		printf("ERROR: failed to set sll_ifi\n");
+		free(ipHolder);
+		free(interfaceHolder);
 		return 0;
 	}
-}
 
-/*void send_recv_address(char *interfaceName, char* ipAddress)
-{
-	int sock;
-	int textLength = 0, buffLength, i, isSent; 
-	
-	char dataBuffer[BUF_SIZ];
-	char sourceMAC[6];
-	char *interfaceHolder; 
-	char *ethHead = dataBuffer; 
-	char *arpHead = dataBuffer + 14;
-	
-	struct ethhdr *ethernetHeader = (struct ethhdr *)dataBuffer;
-	struct arp_hdr *arpHeader;
-	struct sockaddr_ll socketAddr;
-	struct ifreq if_ind, if_MAC;
+	//set sockaddr_ll description
+	deviceSock.sll_family 	= AF_PACKET;
+  	deviceSock.sll_protocol = htons(ETH_P_ARP);
+	deviceSock.sll_hatype 	= htons(ARPHRD_ETHER);
+	deviceSock.sll_pkttype 	= (PACKET_BROADCAST);
+	deviceSock.sll_halen 	= MAC_LENGTH;
+	deviceSock.sll_addr[6] 	= 0x00;
+	deviceSock.sll_addr[7] 	= 0x00;
 
-	//Open the Socket as a Raw Socket
-	sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-	if(sock < 0)
+	/* Setting protocol of the packet */
+	send_req->h_proto = htons(ETH_P_ARP);
+
+	/* Creating ARP request */
+	arpHolder->hardware_type = htons(HW_TYPE);
+	arpHolder->protocol_type = htons(ETH_P_IP);
+	arpHolder->hardware_len = MAC_LENGTH;
+	arpHolder->protocol_len =IPV4_LENGTH;
+	arpHolder->opcode = htons(arpHolderUEST);
+	strcpy(arpHolder->target_ip, interfaceHolder);
+	
+	buffer[32] = 0x00;
+
+	if((status = sendto(sock, buffer, 42, 0, (struct sockaddr*)&deviceSock, sizeof(deviceSock))) == -1)
 	{
-		printf("Error: Socket\n");
-		return;
+		printf("ERROR: failed to send\n");
+		free(ipHolder);
+		free(interfaceHolder);
+		return 0;
 	}
-
-	printf("Succesfully Opened Socket");
-
-	interfaceHolder = (char *) malloc(sizeof(interfaceName));
-	memset(interfaceHolder, 0, sizeof(interfaceName));
-	strcpy(interfaceHolder, interfaceName);
-
-	//Get ethernet interface index 
-	memset(&if_ind, 0, sizeof(struct ifreq));
-	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
-	if((ioctl(sock, SIOCGIFINDEX, &if_ind)< 0))
+	else
 	{
-		printf("ERROR: ioctl failure; SIOCGIFINDEX\n");
-		return;
+		printf("Sent ARP Request: %s\n", buffer);
 	}
-	
-	//Get MAC address of interface
-	memset(&if_MAC, 0, sizeof(struct ifreq));
-	strncpy(if_MAC.ifr_name, interfaceHolder, IFNAMSIZ-1);
-	if((ioctl(sock, SIOCGIFHWADDR, &if_MAC))< 0)
-	{
-		printf("ERROR: ioctl failure; SIOCGIFHWADDR\n");
-		return;
-	}
+	printf("\n\t");
+  	memset(buffer,0x00,60);
 
-	memset(dataBuffer,0, BUF_SIZ);
-	memset(sourceMAC, 0 , 6);
-
-	//store the source MAC Address
-	for (i = 0; i < ETH_ALEN; i++)
-		sourceMAC[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
-
-	//Set socketAddr 
-	socketAddr.sll_family = PF_PACKET;
-	socketAddr.sll_protocol  = htons(ETH_P_ARP);
-	socketAddr.sll_ifindex = if_ind.ifr_ifindex;
-	socketAddr.sll_hatype = ARPHRD_ETHER;
-	socketAddr.sll_pkttype = PACKET_OTHERHOST;
-	socketAddr.sll_halen = 0;
-	socketAddr.sll_addr[6] = 0x00;
-	socketAddr.sll_addr[7] = 0x00;
-
-	
 	while(1)
+  {
+	response_len = recvfrom(sock, buffer, BUF_SIZE, 0, NULL, NULL);
+	if (response_len == -1)
 	{
-		buffLength = recvfrom(sock, dataBuffer, BUF_SIZ, 0, NULL, NULL);
-		if(buffLength == -1)
-		{
-			printf("Failed to receive a message\n");
-		}
-
-		
-		if(ntohs(ethernetHeader->h_proto == ETH_P_ARP)) //check if the packet type is ARP
-		{
-			char buffer_ARP_DHA[6], buffer_ARP_DPA[4];
-			arpHeader = (struct arp_hdr*)arpHead;
-
-			if(ntohs(arpHeader->arp_op) != ARPOP_REQUEST)
-			{
-				printf("Error: not an ARP request\n");
-				break;
-			}
-
-			printf("Response MAC: %02x:%02x:%02x:%02x:%02x:%02x", arpHeader->arp_sha[0], arpHeader->arp_sha[1], arpHeader->arp_sha[2], arpHeader->arp_sha[3],arpHeader->arp_sha[4], arpHeader->arp_sha[5]);
-			printf("Response IP: %02d:%02d:%02d:%02d\n", arpHeader->arp_spa[0], arpHeader->arp_spa[1], arpHeader->arp_spa[2], arpHeader->arp_spa[3]);
-		}
-
-		if(sendto(sock, dataBuffer, BUF_SIZ, 0, (struct sockaddr*)&socketAddr, sizeof(struct sockaddr_ll)) < 0)
-		{
-			printf("Message Failed to Send\n");
-		} 
+			perror("recvfrom():");
+			exit(1);
 	}
+	if(htons(recv_response->h_proto) == PROTO_ARP)
+	{
+			//if( arpResponse->opcode == ARP_REPLY )
+			printf(" RECEIVED ARP RESP len=%d \n",response_len);
+			printf(" Sender IP :");
+			for(int i=0;i<4;i++)
+				printf("%u.",(unsigned int)arpResponse->sender_ip[i]);
 
-	printf("message sent!\n");
-}	*/
+			printf("\n Sender MAC :");
+			for(int i=0;i<6;i++)
+				printf(" %02X:",arpResponse->sender_mac[i]);
+
+			printf("\nReceiver  IP :");
+			for(int i=0;i<4;i++)
+				printf(" %u.",arpResponse->target_ip[i]);
+
+			printf("\n Self MAC :");
+			for(int i=0;i<6;i++)
+				printf(" %02X:",arpResponse->target_mac[i]);
+
+			printf("\n  :");
+
+			break;
+	}
+  }
+
+  return 0;
+}
 
 int main(int argc, char *argv[])
 {
@@ -226,8 +221,7 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 	 
-	send_arp_req(interfaceName, ipAddress);
-	//Do something here
+	process_arp(interfaceName, ipAddress);
 
 	free(ipAddress);
 	return 0;
