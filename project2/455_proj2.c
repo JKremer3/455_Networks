@@ -140,13 +140,13 @@ int process_arp(char *interfaceName, char* ipAddress)
 
 	//Finding interface i and name, storing in deviceSock
 	memset(&deviceSock, 0, sizeof(deviceSock));
-	if((deviceSock.sll_ifindex = if_nametoindex(interfaceHolder)) < 0)
+	/*if((deviceSock.sll_ifindex = if_nametoindex(interfaceHolder)) < 0)
 	{
 		printf("ERROR: failed to set sll_ifindex\n");
 		free(ipHolder);
 		free(interfaceHolder);
 		return 0;
-	}
+	}*/
 
 	strcpy(dest_ip_holder, ipHolder);
 	if((getaddrinfo(dest_ip_holder, NULL, NULL, &res)) != 0)
@@ -167,11 +167,12 @@ int process_arp(char *interfaceName, char* ipAddress)
 	deviceSock.sll_halen 	= MAC_LENGTH;
 	deviceSock.sll_addr[6] 	= 0x00;
 	deviceSock.sll_addr[7] 	= 0x00;
+	deviceSock.sll_ifindex  = if_ind.ifr_ifindex;
 
 	/* Setting protocol of the packet */
 	send_req->h_proto = htons(ETH_P_ARP);
 
-	/* Creating ARP request */
+	/* Setting ARP request fields*/
 	arpHolder->hardware_type = htons(HW_TYPE);
 	arpHolder->protocol_type = htons(ETH_P_IP);
 	arpHolder->hardware_len = MAC_LENGTH;
