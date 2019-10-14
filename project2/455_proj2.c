@@ -102,6 +102,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 		return 0;
 	}
 
+	//get the interface index
 	memset(&if_ind, 0, sizeof(struct ifreq));
 	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
 	//printf("Interface for MAC: %s\n", if_ind.ifr_name);
@@ -148,6 +149,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 		return 0;
 	}*/
 
+	//parse and set the target ip
 	strcpy(dest_ip_holder, ipHolder);
 	if((getaddrinfo(dest_ip_holder, NULL, NULL, &res)) != 0)
 	{
@@ -181,6 +183,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 	
 	//buffer[32] = 0x00;
 
+	//send the packet, and if it failed to send, exit
 	if((status = sendto(sock, buffer, 42, 0, (struct sockaddr*)&deviceSock, sizeof(deviceSock))) == -1)
 	{
 		printf("ERROR: failed to send\n");
@@ -196,15 +199,16 @@ int process_arp(char *interfaceName, char* ipAddress)
   	memset(buffer,0x00,60);
 
 	while(1)
-  {
-	response_len = recvfrom(sock, buffer, BUF_SIZE, 0, NULL, NULL);
-	if (response_len == -1)
-	{
-			perror("recvfrom():");
-			exit(1);
-	}
-	if(htons(recv_response->h_proto) == PROTO_ARP)
-	{
+  	{
+		response_len = recvfrom(sock, buffer, BUF_SIZE, 0, NULL, NULL);
+		if (response_len == -1)
+		{
+				printf("error: recvfrom() \n");
+				exit(1);
+		}
+		printf("%04x should equal %04x", htons(recv_response->h_proto), PROTO_ARP );
+		if(htons(recv_response->h_proto) == PROTO_ARP)
+		{
 			//if( arpResponse->opcode == ARP_REPLY )
 			printf(" RECEIVED ARP RESP len=%d \n",response_len);
 			printf(" Sender IP :");
@@ -226,8 +230,8 @@ int process_arp(char *interfaceName, char* ipAddress)
 			printf("\n  :");
 
 			break;
-	}
-  }
+		}
+  	}
 
   return 0;
 }
