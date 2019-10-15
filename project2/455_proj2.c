@@ -82,7 +82,6 @@ int process_arp(char *interfaceName, char* ipAddress)
 	//Get Source MAC
 	memset(&if_MAC, 0, sizeof(struct ifreq));
 	strncpy(if_MAC.ifr_name, interfaceHolder, IFNAMSIZ-1);
-	//printf("Interface for MAC: %s\n", if_MAC.ifr_name);
 	//Get MAC address of interface
 	if((ioctl(sock, SIOCGIFHWADDR, &if_MAC))< 0)
 	{
@@ -106,7 +105,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 	//get the interface index
 	memset(&if_ind, 0, sizeof(struct ifreq));
 	strncpy(if_ind.ifr_name, interfaceHolder, IFNAMSIZ-1);
-	//printf("Interface for MAC: %s\n", if_ind.ifr_name);
+	
 	//Get MAC address of interface
 	if((ioctl(sock, SIOCGIFINDEX, &if_ind))< 0)
 	{
@@ -115,13 +114,12 @@ int process_arp(char *interfaceName, char* ipAddress)
 		free(interfaceHolder);
 		return 0;
 	}
-	//close(sock);
 	
 	printf("Source MAC: ");
 	for(int i = 0; i < 6; i++)
 	{
 		arpHolder->sender_mac[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
-		arpHolder->target_mac[i] = (unsigned char)0x00;
+		arpHolder->target_mac[i] = (unsigned char)0xff;
 		send_req->h_source[i] 	 = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
 		send_req->h_dest[i]		 = (unsigned char)0xff; //spamming that packet
 		deviceSock.sll_addr[i]	 = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
@@ -138,8 +136,8 @@ int process_arp(char *interfaceName, char* ipAddress)
 		free(interfaceHolder);
 		return 0;
 	}
-	printf("%s", arpHolder->sender_ip);
-	printf("\n");
+	printf("%s\n", arpHolder->sender_ip);
+	
 
 	//Finding interface i and name, storing in deviceSock
 	memset(&deviceSock, 0, sizeof(deviceSock));
@@ -153,6 +151,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 
 	//parse and set the target ip
 	strcpy(dest_ip_holder, ipHolder);
+	
 	if((getaddrinfo(dest_ip_holder, NULL, NULL, &res)) != 0)
 	{
 		printf("Error: getaddrinfo()\n");
@@ -160,8 +159,10 @@ int process_arp(char *interfaceName, char* ipAddress)
 		free(interfaceHolder);
 		return 0;
 	}
+
+	//set the target ip, then copy it into the ARP Holder
 	ipv4 = (struct  sockaddr_in*) res->ai_addr; 
-	memcpy(arpHolder->target_ip, &ipv4->sin_addr, sizeof(unsigned char) * 4);
+	memcpy(&arpHolder->target_ip, &ipv4->sin_addr, sizeof(unsigned char) * 4);
 
 	//set sockaddr_ll description
 	deviceSock.sll_family 	= AF_PACKET;
@@ -184,6 +185,10 @@ int process_arp(char *interfaceName, char* ipAddress)
 	arpHolder->opcode = htons(arpHolderUEST);
 
 	//send the packet, and if it failed to send, exit
+	for(int i = 0; i < 6; i++)
+	{
+		send_req->h_dest[i] = (unsigned char)0xff; //spamming that packet
+	}
 	if((status = sendto(sock, buffer, 42, 0, (struct sockaddr*)&deviceSock, sizeof(deviceSock))) == -1)
 	{
 		printf("ERROR: failed to send\n");
@@ -193,11 +198,12 @@ int process_arp(char *interfaceName, char* ipAddress)
 	}
 	else
 	{
-		printf("Sent ARP Request\n");
+		printf("Sent ARP Request!\n");
 	}
 	printf("\n");
   	memset(buffer,0x00,60);
 
+	//Loop through responses until you receive the ARP response
 	while(1)
   	{
 		response_len = recvfrom(sock, buffer, BUF_SIZE, 0, NULL, NULL);
@@ -206,30 +212,31 @@ int process_arp(char *interfaceName, char* ipAddress)
 				printf("error: recvfrom() \n");
 				exit(1);
 		}
-		printf("%04x should equal %04x\n", htons(recv_response->h_proto), PROTO_ARP );
 		if(htons(recv_response->h_proto) == PROTO_ARP)
 		{
 			//if( arpResponse->opcode == ARP_REPLY )
-			printf(" RECEIVED ARP RESP len=%d \n",response_len);
-			printf(" Sender IP :");
+			printf("Received ARP response length = %d \n",response_len);
+			printf("Sender IP: ");
 			for(int i=0;i<4;i++)
 				printf("%u.",(unsigned int)arpResponse->sender_ip[i]);
 
-			printf("\n Sender MAC :");
+			printf("\nSender MAC: ");
 			for(int i=0;i<6;i++)
-				printf(" %02X:",arpResponse->sender_mac[i]);
+				printf("%02X:",arpResponse->sender_mac[i]);
 
-			printf("\nReceiver  IP :");
+			printf("\nReceiver IP: ");
 			for(int i=0;i<4;i++)
-				printf(" %u.",arpResponse->target_ip[i]);
+				printf("%u.",arpResponse->target_ip[i]);
 
-			printf("\n Self MAC :");
+			printf("\nSelf-MAC: ");
 			for(int i=0;i<6;i++)
-				printf(" %02X:",arpResponse->target_mac[i]);
+				printf("%02X:",arpResponse->target_mac[i]);
 
-			printf("\n  :");
+			printf("\n");
 
-			break;
+			free(ipHolder);
+			free(interfaceHolder);
+			return 1;
 		}
   	}
 
