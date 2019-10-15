@@ -28,6 +28,7 @@
 #define arpHolderUEST 0x01
 #define ARP_REPLY 0x02
 #define BUF_SIZE 60
+#define ARPHRD_ETHER 1 //from linux/if_arp
 
 //adjusted arp_hdr struct for readability
 typedef struct arp_hdr
@@ -81,7 +82,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 	//Get Source MAC
 	memset(&if_MAC, 0, sizeof(struct ifreq));
 	strncpy(if_MAC.ifr_name, interfaceHolder, IFNAMSIZ-1);
-	printf("Interface for MAC: %s\n", if_MAC.ifr_name);
+	//printf("Interface for MAC: %s\n", if_MAC.ifr_name);
 	//Get MAC address of interface
 	if((ioctl(sock, SIOCGIFHWADDR, &if_MAC))< 0)
 	{
@@ -120,9 +121,10 @@ int process_arp(char *interfaceName, char* ipAddress)
 	for(int i = 0; i < 6; i++)
 	{
 		arpHolder->sender_mac[i] = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
-		arpHolder->target_mac[i] = 0x00;
+		arpHolder->target_mac[i] = (unsigned char)0x00;
 		send_req->h_source[i] 	 = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
-		send_req->h_dest[i]		 = 0xff; //spamming that packet
+		send_req->h_dest[i]		 = (unsigned char)0xff; //spamming that packet
+		deviceSock.sll_addr[i]	 = (unsigned char)(if_MAC.ifr_hwaddr.sa_data[i]);
 		printf("%02x:", arpHolder->sender_mac[i]);
 	}
 	printf("\n");
@@ -165,8 +167,8 @@ int process_arp(char *interfaceName, char* ipAddress)
 	deviceSock.sll_family 	= AF_PACKET;
   	deviceSock.sll_protocol = htons(ETH_P_ARP);
 	deviceSock.sll_hatype 	= htons(ARPHRD_ETHER);
-	deviceSock.sll_pkttype 	= (PACKET_BROADCAST);
-	deviceSock.sll_halen 	= MAC_LENGTH;
+	deviceSock.sll_pkttype 	= (unsigned char)PACKET_BROADCAST;
+	deviceSock.sll_halen 	= (unsigned char)MAC_LENGTH;
 	deviceSock.sll_addr[6] 	= 0x00;
 	deviceSock.sll_addr[7] 	= 0x00;
 	deviceSock.sll_ifindex  = if_ind.ifr_ifindex;
@@ -180,8 +182,6 @@ int process_arp(char *interfaceName, char* ipAddress)
 	arpHolder->hardware_len = MAC_LENGTH;
 	arpHolder->protocol_len =IPV4_LENGTH;
 	arpHolder->opcode = htons(arpHolderUEST);
-	
-	//buffer[32] = 0x00;
 
 	//send the packet, and if it failed to send, exit
 	if((status = sendto(sock, buffer, 42, 0, (struct sockaddr*)&deviceSock, sizeof(deviceSock))) == -1)
@@ -195,7 +195,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 	{
 		printf("Sent ARP Request\n");
 	}
-	printf("\n\t");
+	printf("\n");
   	memset(buffer,0x00,60);
 
 	while(1)
@@ -206,7 +206,7 @@ int process_arp(char *interfaceName, char* ipAddress)
 				printf("error: recvfrom() \n");
 				exit(1);
 		}
-		printf("%04x should equal %04x", htons(recv_response->h_proto), PROTO_ARP );
+		printf("%04x should equal %04x\n", htons(recv_response->h_proto), PROTO_ARP );
 		if(htons(recv_response->h_proto) == PROTO_ARP)
 		{
 			//if( arpResponse->opcode == ARP_REPLY )
