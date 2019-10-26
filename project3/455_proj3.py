@@ -39,7 +39,7 @@ def processARP(packet):
     if(arpRes[0][Ether].dst == get_if_hwaddr(conf.iface)):
         print("ARP received")
         #arpRes[0].show()
-        return arpRes[0][Ether].dst
+        return arpRes[0][Ether].src
     else:
         print("Failed to Receive ARP")
 
@@ -82,7 +82,6 @@ def recvIPpacket(interface):
             #recievedPack.show()
             print("message Recieved:\t")
             recievedPack[0][Raw].show()
-            print("\n")
             return
 
 def runDebug(param):
@@ -98,7 +97,7 @@ def runDebug(param):
         processARP(packet)
     elif(param == "Send"):
         print("Sending Packet on local network") 
-        sendIPpacket("h1-eth0","10.0.0.2", "10.0.0.1", "Hi")
+        sendIPpacket("h1-eth0","10.0.0.2", "10.0.0.1", "Hi this is some shit code")
     elif(param == "Recv"):
         recvIPpacket("h2-eth0")
     else:
