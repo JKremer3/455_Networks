@@ -33,12 +33,12 @@ def createARPheader(destinationIP):
     return arpHeader
 
 def processARP(packet):
-    arpRes = srp1(packet, timeout = 2)
+    arpRes = srp1(packet)
 
     arpRes.show()
     if(arpRes[0][Ether].dst == get_if_hwaddr(conf.iface)):
         print("ARP received")
-        arpRes[0].show()
+        #arpRes[0].show()
         return arpRes[0][Ether].dst
     else:
         print("Failed to Receive ARP")
@@ -67,6 +67,7 @@ def sendIPpacket(interface, destinationIP, routerIP, message):
     #construct the full packet
     fullPack  = ethhdrIP/iphdr
     fullPack.add_payload(raw_message)
+    print("\nComplete Packet:")
     fullPack.show()
 
     #send the packet
@@ -75,11 +76,13 @@ def sendIPpacket(interface, destinationIP, routerIP, message):
 def recvIPpacket(interface):
     print("Interface: {}".format(interface))
     while(1):
-        recievedPack = sniff()
-        recievedPack.show()
-        if(recievedPack[0].haslayer("Raw") and recievedPack[0][Ethernet].dst == get_if_hwaddr(conf.iface)):
+        recievedPack = sniff(count=1)
+        #recievedPack.show()
+        if(recievedPack[0].haslayer(Raw) and recievedPack[0][Ether].dst == get_if_hwaddr(conf.iface)):
             #recievedPack.show()
-            print("message: {}".format(recievedPack[0][raw].load))
+            print("message Recieved:\t")
+            recievedPack[0][Raw].show()
+            print("\n")
             return
 
 def runDebug(param):
@@ -95,7 +98,7 @@ def runDebug(param):
         processARP(packet)
     elif(param == "Send"):
         print("Sending Packet on local network") 
-        sendIPpacket("h1-eth0","10.0.0.2", "10.0.0.1", "Hello World")
+        sendIPpacket("h1-eth0","10.0.0.2", "10.0.0.1", "Hi")
     elif(param == "Recv"):
         recvIPpacket("h2-eth0")
     else:
