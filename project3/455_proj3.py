@@ -1,6 +1,8 @@
 import sys
 import socket
+import netifaces
 from scapy.all import *
+from netaddr import *
 
 #broadcast = "ff:ff:ff:ff:ff:ff"
 
@@ -35,6 +37,19 @@ def sendARP(destinationIP):
     except:
         print("Response Timed Out")
 
+def calculateNetmask(destinationIP):
+    localInterface = conf.iface
+    netInfo = netifaces.ifaddresses(localInterface)
+
+    localIP = netInfo[netifaces.AF_INET][0]['addr']
+    localNetmask = netInfo[netifaces.AF_INET][0]['netmask']
+
+    if(IPNetwork(localIP+'/'+localNetmask) == IPNetwork(destinationIP + '/' + localNetmask)):
+        return True
+    else:
+        return False
+
+
 def sendIPpacket(interface, destinationIP, routerIP, message):
     print("Interface: {}".format(interface))
     print("destIP   : {}".format(destinationIP))
@@ -43,15 +58,25 @@ def sendIPpacket(interface, destinationIP, routerIP, message):
 
     raw_message = Raw(load=message)
     
-    #first arp the router
-    routerMAC = sendARP(routerIP)
-
+    #first check the netmask,
+    #IF the location is in network, ARP the location directly
+    #otherwise, ARP the router
+    if(calculateNetmask(destinationIP)):
+        destinationMAC = sendARP(destinationIP)
+    else:
+        destinationMAC = sendARP(routerIP)
+    
     #then build the packet, sending to the router IP
-    ethHdr = Ether(dst = routerMAC, type = 0x0800)
+    ethHdr = Ether(dst = destinationMAC, type = 0x0800)
     ipHdr = IP(dst = destinationIP, ttl = 6, proto = 253)
     packet = ethHdr/ipHdr
     packet.add_payload(raw_message)
     packet.show()
+
+    #clear default checksum and recalculate
+    del packet[IP].chksum
+    packet = packet.__class__(bytes(packet))
+    print("Checksum calculation: {}".format(hex(packet[IP].chksum)))
 
     sendp(packet)
 
@@ -60,10 +85,11 @@ def recvIPpacket(interface):
     print("Interface: {}".format(interface))
     while(1):
         recievedPack = sniff(filter="ip",count=1, iface =conf.iface)
-        recievedPack.show()
+        #recievedPack.show()
         if(recievedPack[0].haslayer(Raw) and recievedPack[0][Ether].dst == get_if_hwaddr(conf.iface)):
             recievedPack.show()
             print("message Recieved:\t")
+            print("Checksum {}".format(hex(recievedPack[0][IP].chksum)))
             recievedPack[0][Raw].show()
             return
 
