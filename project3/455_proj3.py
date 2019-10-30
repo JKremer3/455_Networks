@@ -1,47 +1,39 @@
 import sys
 import socket
 from scapy.all import *
-from netaddr import *
 
 #broadcast = "ff:ff:ff:ff:ff:ff"
 
-def getSystemInformation():
-    localMAC = get_if_hwaddr(conf.iface) 
-    localIP = ARP().psrc
+def sendEthernetMessage(message, destinationAddress = None):
+    #create an ethernet packet, setting the destination address, and the packet type to IPv4
+    ethernetHeader = Ether(dst = destinationAddress)
+    ethernetHeader.type = 0x0800 #IPv4 type
+    
+    rawPayload = Raw(load=message)
+    ethernetHeader.add_payload(rawPayload)
+    
+    if(debug):
+        print("Ethernet Packet")
+        ethernetHeader.show()
+    sendp(ethernetHeader)
 
-    print("Local MAC: {}".format(localMAC))
-    print("Local IP : {}".format(localIP)) 
+def sendARP(destinationIP):
+    arpEthHeader = Ether(type = 0x806, dst = "ff:ff:ff:ff:ff:ff")
+    arpHeader = ARP(pdst=destinationIP)
+    arpPacket = arpEthHeader/arpHeader
 
-def createEthernetHeader(destinationAddress = None):
-    ethernetHeader = None
+    if(debug):
+        arpPacket.show()
+    
+    response = srp1(arpPacket)
 
-    #If no destination address is provided, 
-    #build the ethernetHeader for ARP
-    if (destinationAddress == None):
-        ethernetHeader = Ether() #defaults destination to broadcast
-        ethernetHeader.type = 0x0806 #ARP type
-    else:
-        ethernetHeader = Ether(dst = destinationAddress)
-        ethernetHeader.type = 0x0800 #IPv4 type
-
-    return ethernetHeader
-
-def createARPheader(destinationIP):
-    arpHeader = ARP()
-    arpHeader.pdst = destinationIP
-
-    return arpHeader
-
-def processARP(packet):
-    arpRes = srp1(packet)
-
-    arpRes.show()
-    if(arpRes[0][Ether].dst == get_if_hwaddr(conf.iface)):
-        print("ARP received")
-        #arpRes[0].show()
-        return arpRes[0][Ether].src
-    else:
-        print("Failed to Receive ARP")
+    try:
+        if(response.haslayer(ARP)):
+            print("Recieved ARP resonse")
+            response[ARP].show()
+            return response[ARP].hwsrc
+    except:
+        print("Response Timed Out")
 
 def sendIPpacket(interface, destinationIP, routerIP, message):
     print("Interface: {}".format(interface))
@@ -49,36 +41,27 @@ def sendIPpacket(interface, destinationIP, routerIP, message):
     print("routerIP : {}".format(routerIP))
     print("message  : {}".format(message))
 
-    raw_message = Raw(load = message)
+    raw_message = Raw(load=message)
     
-    #first create and send ARP to get HW address
-    ethhdrArp = createEthernetHeader()
-    arphdr    = createARPheader(destinationIP)
-    arpPacket = ethhdrArp/arphdr #put together the arp packet
+    #first arp the router
+    routerMAC = sendARP(routerIP)
 
-    #send the arp to get the destination MAC
-    destMAC   = processARP(arpPacket)
+    #then send the packet to the router to properly deliver
+    ethHdr = Ether(dst = routerMAC, type = 0x0800)
+    ipHdr = IP(dst = destinationIP, ttl = 6, proto = 253)
+    packet = ethHdr/ipHdr
+    packet.add_payload(raw_message)
+    packet.show()
 
-    #with the destination MAC, start building IP packet
-    ethhdrIP  = createEthernetHeader(destMAC)
-    iphdr     = IP(dst = destinationIP)
-    iphdr.ttl = 6
+    sendp(packet)
 
-    #construct the full packet
-    fullPack  = ethhdrIP/iphdr
-    fullPack.add_payload(raw_message)
-    print("\nComplete Packet:")
-    fullPack.show()
-
-    #send the packet
-    sendp(fullPack)
     
 def recvIPpacket(interface):
     print("Interface: {}".format(interface))
     while(1):
-        recievedPack = sniff(count=1)
+        recievedPack = sniff(filter="ip",count=1)
         #recievedPack.show()
-        if(recievedPack[0].haslayer(Raw) and recievedPack[0][Ether].dst == get_if_hwaddr(conf.iface)):
+        if(recievedPack[0].haslayer(Raw) and recievedPack[0][IP].dst == get_if_addr(conf.iface)):
             #recievedPack.show()
             print("message Recieved:\t")
             recievedPack[0][Raw].show()
@@ -125,11 +108,4 @@ if __name__ == "__main__":
         else:
             runDebug(sys.argv[2])
     else:
-        print("Usage:  python3 ./455_proj3.py Send <InterfaceName> <DestIP> <Router IP> <Message>\n\tpython3 ./455_proj3.py Send <InterfaceName>") 
-
-    
-
-
-
-
-
+        print("Usage:  python3 ./455_proj3.py Send <InterfaceName> <DestIP> <Router IP> <Message>\n\tpython3 ./455_proj3.py Send <InterfaceName>\n\tpython3 ./455_proj3.py debug <param>") 
