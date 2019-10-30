@@ -46,7 +46,7 @@ def sendIPpacket(interface, destinationIP, routerIP, message):
     #first arp the router
     routerMAC = sendARP(routerIP)
 
-    #then send the packet to the router to properly deliver
+    #then build the packet, sending to the router IP
     ethHdr = Ether(dst = routerMAC, type = 0x0800)
     ipHdr = IP(dst = destinationIP, ttl = 6, proto = 253)
     packet = ethHdr/ipHdr
@@ -59,10 +59,10 @@ def sendIPpacket(interface, destinationIP, routerIP, message):
 def recvIPpacket(interface):
     print("Interface: {}".format(interface))
     while(1):
-        recievedPack = sniff(filter="ip",count=1)
-        #recievedPack.show()
-        if(recievedPack[0].haslayer(Raw) and recievedPack[0][IP].dst == get_if_addr(conf.iface)):
-            #recievedPack.show()
+        recievedPack = sniff(filter="ip",count=1, iface =conf.iface)
+        recievedPack.show()
+        if(recievedPack[0].haslayer(Raw) and recievedPack[0][Ether].dst == get_if_hwaddr(conf.iface)):
+            recievedPack.show()
             print("message Recieved:\t")
             recievedPack[0][Raw].show()
             return
