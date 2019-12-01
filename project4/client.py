@@ -6,7 +6,7 @@ from scapy.all import *
 UDP_IP = "10.0.0.2"
 UDP_PORT = 5005
 
-file = open("tux.txt")
+file = open("tux.txt", 'r+')
 lines = file.readlines()
 
 print("UDP target IP:", UDP_IP)
