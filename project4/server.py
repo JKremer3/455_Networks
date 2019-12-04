@@ -1,3 +1,5 @@
+#Reciever
+
 import socket
 from scapy.all import *
 
@@ -11,12 +13,12 @@ sock.bind((UDP_IP, UDP_PORT))
 
 while True:
     data, addr = sock.recvfrom(1024) # buffer size is 1024 bytes
-    #print(data.decode("UTF-8"), end='')
-    strbuf=data.decode("UTF-8")
-    print(strbuf, end ='')
-    if len(strbuf) is not 0:
-        outfile.write(strbuf)
+    if len(data.decode("UTF-8")) > 0:
+        print(data.decode("UTF-8"), end = '')
+        outfile.write(data.decode("UTF-8"))
+    
     # Packet.__class__(bytes(data))
     # data.Show()
     #pckt=Raw(data)
     #pckt.show()
+
