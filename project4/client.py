@@ -1,6 +1,6 @@
 #Sender
 import socket
-from scapy.all import *
+import sys
 
 def getLocalIP():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -91,6 +91,7 @@ if __name__ == "__main__":
         #while there are less acknowledged packets than the max window
         while ackNum < windowSize:
             sendWindow(window, IP, PORT, ackNum)
+            #after sending a message, check for a NACK or ACK
             ackNum = receiveAcknowledgment(IP, PORT, sock)
 
     #else:

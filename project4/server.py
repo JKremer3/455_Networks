@@ -1,7 +1,7 @@
 #Reciever
 
 import socket
-from scapy.all import *
+import sys
 
 def getLocalIP():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -30,6 +30,7 @@ if __name__ == "__main__":
     sock.settimeout(5)
 
     nextSeqNumber = 0
+    dataReceived = set()
     print("Awaiting Data Transfer")
     while True:
         try:
@@ -37,41 +38,32 @@ if __name__ == "__main__":
             data = data.decode("UTF-8")             #decode the byte sequence
             message = data[1:]                      #slice off the seq number to get message
 
-            #if a packet is recieved containing "ffff", close the socket and exit
-            if data == "ffff" or data[1:] == "ffff":
+            #pull the sequence number from the packet and compare
+            #to the next expected packet
+            seqNum = int(data[0])
+            #
+            #if a packet is recieved containing "ffff" and it is in sequence, close the socket and exit
+            if (nextSeqNumber == seqNum) and data[1:] == "ffff":
                 print("Transmission Complete")
                 sock.sendto(bytes("close", encoding='UTF-8'), (addr[0], PORT))
                 sock.close()
                 exit(0)
-
-            #pull the sequence number from the packet and compare
-            #to the next expected packet
-            seqNum = int(data[0])
-            if nextSeqNumber == seqNum: #if it is equal to the next expected packet, write
+            #if the packet is in sequence, and hasnt already been received, write to file
+            elif (nextSeqNumber == seqNum) and (data not in dataReceived): #if it is equal to the next expected packet, write
                 outfile.write(message)
+                dataReceived.add(data)
                 nextSeqNumber +=1
-            else:                       #otherwise send a NACK, for a dropped packet
-                print("Packet dropped in transmission: ", end = '')
-                print(nextSeqNumber)
+            else: #otherwise send a NACK, for a dropped packet
+                requestedSeq = nextSeqNumber
                 nack = "N:"+str(nextSeqNumber)
                 sock.sendto(bytes(nack, encoding='UTF-8'), (addr[0], PORT))
 
-            if nextSeqNumber == 10: #if the nextSeqNumber is 10, reset, a full window will has been recieved
+            if nextSeqNumber == 10: #if the nextSeqNureRequestInProgress = 0mber is 10, reset, a full window will has been recieved
                 print("ACK Sent")
                 nextSeqNumber = 0
                 sock.sendto(bytes("ACK", encoding='UTF-8'), (addr[0], PORT))
-    
         except(socket.timeout):
             print("Socket Timed Out, Exiting Program")
             sock.close()
             exit(1)
-
-            #if len(data.decode("UTF-8")) > 0:
-             #   print(data.decode("UTF-8"), end = '')
-              #  outfile.write(data.decode("UTF-8"))
-        
-        # Packet.__class__(bytes(data))
-        # data.Show()
-        #pckt=Raw(data)
-        #pckt.show()
 
