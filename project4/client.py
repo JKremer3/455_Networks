@@ -20,12 +20,13 @@ def sendWindow(window, sendIP, PORT, count):
 def generateWindows(data, maxWindowSize):
     windowHolder = []
     dataBuf = []
-
+    
     for line in data: #for all of the data
         #if the data buffer is the max size of a window
         if len(dataBuf) == maxWindowSize:
             windowHolder.append(dataBuf)
             dataBuf = []
+            dataBuf.append(line)
         #if the data buffer is smaller than the max size, but the current line is last line in the data set
         elif len(dataBuf) < maxWindowSize and line == data[-1]:
             dataBuf.append(line)
@@ -34,6 +35,7 @@ def generateWindows(data, maxWindowSize):
         #otherwise fill the buffer
         else:
             dataBuf.append(line)
+
     return windowHolder
 
 def receiveAcknowledgment(recvIP, PORT, sock):
@@ -47,10 +49,14 @@ def receiveAcknowledgment(recvIP, PORT, sock):
             recv = recv.decode("UTF-8")
 
             if recv == 'ACK':
+                print("Recieved ACK, moving to next window")
                 return 10
             elif recv[0] == 'N':
                 return int(recv[2])
-
+            elif recv == 'close':
+                print("Server has received all Data. ending transmission")
+                sock.close()
+                exit(0)
         except(socket.timeout):
             print("Failed to Receive; Socket closing")
             sock.close()
@@ -86,9 +92,6 @@ if __name__ == "__main__":
         while ackNum < windowSize:
             sendWindow(window, IP, PORT, ackNum)
             ackNum = receiveAcknowledgment(IP, PORT, sock)
-    
-    #Once the data has completed being sent, send the terminate message
-    sock.sendto(bytes("ffff", encoding='UTF-8'), (localIP, PORT))
 
     #else:
         #print("Usage:\t python3 client.py [IP] tux.txt")

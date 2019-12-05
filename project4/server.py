@@ -40,6 +40,7 @@ if __name__ == "__main__":
             #if a packet is recieved containing "ffff", close the socket and exit
             if data == "ffff" or data[1:] == "ffff":
                 print("Transmission Complete")
+                sock.sendto(bytes("close", encoding='UTF-8'), (addr[0], PORT))
                 sock.close()
                 exit(0)
 
@@ -50,7 +51,7 @@ if __name__ == "__main__":
                 outfile.write(message)
                 nextSeqNumber +=1
             else:                       #otherwise send a NACK, for a dropped packet
-                print("Packet dropped in transmission: ")
+                print("Packet dropped in transmission: ", end = '')
                 print(nextSeqNumber)
                 nack = "N:"+str(nextSeqNumber)
                 sock.sendto(bytes(nack, encoding='UTF-8'), (addr[0], PORT))
